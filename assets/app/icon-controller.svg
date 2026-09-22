@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Icon Controller</title>
+  <desc>A white document with two adjustment controls on an indigo tile.</desc>
+  <defs>
+    <linearGradient id="tile" x1="24" y1="16" x2="228" y2="248" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5976FF"/>
+      <stop offset=".52" stop-color="#4055D8"/>
+      <stop offset="1" stop-color="#283780"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="80" y1="44" x2="174" y2="212" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#E9F1FF"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="232" height="232" rx="58" fill="url(#tile)"/>
+  <path d="M70 24h116a46 46 0 0 1 46 46" fill="none" stroke="#FFF" stroke-opacity=".18" stroke-width="2" stroke-linecap="round"/>
+  <path d="M84 52h66l42 42v103a19 19 0 0 1-19 19H84a19 19 0 0 1-19-19V71a19 19 0 0 1 19-19Z" fill="#142457" opacity=".24"/>
+  <path d="M84 42h66l42 42v103a19 19 0 0 1-19 19H84a19 19 0 0 1-19-19V61a19 19 0 0 1 19-19Z" fill="url(#paper)"/>
+  <path d="M150 42v27a15 15 0 0 0 15 15h27Z" fill="#B7CBFF"/>
+  <path d="M91 118h75M91 162h75" fill="none" stroke="#34477E" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="115" cy="118" r="16" fill="#F7FAFF"/>
+  <circle cx="115" cy="118" r="12" fill="#13BEB6"/>
+  <circle cx="145" cy="162" r="16" fill="#F7FAFF"/>
+  <circle cx="145" cy="162" r="12" fill="#5976FF"/>
+</svg>

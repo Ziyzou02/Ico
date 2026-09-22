@@ -5,9 +5,10 @@
     <AssemblyName>IconController</AssemblyName>
     <RootNamespace>IconController</RootNamespace>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <OutputPath>build\</OutputPath>
+    <OutputPath>.\</OutputPath>
     <IntermediateOutputPath>build\obj\</IntermediateOutputPath>
     <ApplicationManifest>src\app.manifest</ApplicationManifest>
+    <ApplicationIcon>assets\app\icon-controller.ico</ApplicationIcon>
     <Optimize>true</Optimize>
   </PropertyGroup>
   <ItemGroup>

@@ -1,6 +1,38 @@
-param([switch]$ValidateOnly, [switch]$Restore)
+param([switch]$ValidateOnly, [switch]$Restore, [int]$Item = -1)
 $ErrorActionPreference = 'Stop'
-$config = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('@@PAYLOAD@@')) | ConvertFrom-Json
+$configs = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('@@PAYLOAD@@')) | ConvertFrom-Json
+$packageId = '@@PACKAGE@@'
+$packageRoot = if ((Split-Path -Leaf $PSScriptRoot) -eq $packageId) { $PSScriptRoot } else { Join-Path $PSScriptRoot ('history\' + $packageId) }
+if ($Item -eq -1) {
+    # Check every profile before the first mutation. Child processes isolate per-item exits and state.
+    if (-not $Restore -or $ValidateOnly) {
+        for ($i = 0; $i -lt $configs.Count; $i++) {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Item $i -ValidateOnly
+            if ($LASTEXITCODE -ne 0) { Write-Host ('Preflight failed: ' + $configs[$i].extension) -ForegroundColor Red; exit 1 }
+        }
+    }
+    if ($ValidateOnly) { Write-Output ('ALL_VALIDATION_OK: ' + $configs.Count + ' profiles; no changes made.'); exit 0 }
+    $indices = @(0..($configs.Count - 1))
+    if ($Restore) { [array]::Reverse($indices) }
+    $failures = 0
+    foreach ($i in $indices) {
+        if ($Restore -and -not (Test-Path -LiteralPath (Join-Path $packageRoot ('items\' + $configs[$i].revisionId + '\state.json')))) { continue }
+        Write-Output ('Processing ' + $configs[$i].extension)
+        $childArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-Item',$i)
+        if ($Restore) { $childArgs += '-Restore' }
+        & powershell.exe @childArgs
+        if ($LASTEXITCODE -ne 0) {
+            $failures++
+            if (-not $Restore) { Write-Host 'Stopped. Earlier successful items remain applied; use restore-all.cmd to undo this batch.' -ForegroundColor Red; exit 1 }
+        }
+    }
+    if ($failures) { Write-Host 'Some items could not be restored. Review errors and per-item receipts.' -ForegroundColor Red; exit 1 }
+    Write-Output 'Operation completed. Verify icons in File Explorer.'
+    exit 0
+}
+if ($Item -lt 0 -or $Item -ge $configs.Count) { throw 'Invalid profile index.' }
+$config = $configs[$Item]
+$workRoot = Join-Path $packageRoot ('items\' + $config.revisionId)
 $utf8 = New-Object Text.UTF8Encoding($false)
 function Write-Json($path, $value) {
     $temp = $path + '.tmp'
@@ -52,7 +84,7 @@ function Clear-Choice($base) {
     }
 }
 function Receipt($status, $message, $backup) {
-    Write-Json (Join-Path $PSScriptRoot 'receipt.json') ([ordered]@{ revisionId=$config.revisionId; status=$status; completedAt=[DateTime]::UtcNow.ToString('o'); message=$message; backupFolder=$backup })
+    Write-Json (Join-Path $workRoot 'receipt.json') ([ordered]@{ revisionId=$config.revisionId; status=$status; completedAt=[DateTime]::UtcNow.ToString('o'); message=$message; backupFolder=$backup })
 }
 function Notify-Shell {
     if (-not ('IconControllerNotify' -as [type])) {
@@ -64,10 +96,14 @@ function Check-Config {
     if ($config.extension -notmatch '^\.[a-z0-9][a-z0-9_+-]{0,31}$' -or $config.extension -in @('.exe','.com','.lnk','.dll','.sys','.cpl','.scr')) { throw 'Unsupported extension.' }
     if (-not [IO.Path]::IsPathRooted($config.application) -or [IO.Path]::GetExtension($config.application) -ine '.exe' -or $config.application -match '["\r\n%]') { throw 'Invalid application path.' }
     if (-not (Test-Path -LiteralPath $config.application -PathType Leaf)) { throw ('Application not found: ' + $config.application) }
-    if ($config.bundledIcon) { $script:sourceIcon = Join-Path $PSScriptRoot 'icon.ico' }
-    else { $script:sourceIcon = $config.iconPath }
-    if (-not [IO.Path]::IsPathRooted($sourceIcon) -or [IO.Path]::GetExtension($sourceIcon) -notin @('.ico','.exe','.dll') -or $sourceIcon -match '["\r\n%]') { throw 'Invalid icon path.' }
-    if (-not (Test-Path -LiteralPath $sourceIcon -PathType Leaf)) { throw ('Icon not found: ' + $sourceIcon) }
+    if ($config.bundledIcon) {
+        $script:iconBytes = [Convert]::FromBase64String($config.iconData)
+        if ($iconBytes.Length -lt 22 -or $iconBytes[0] -ne 0 -or $iconBytes[1] -ne 0 -or $iconBytes[2] -ne 1 -or $iconBytes[3] -ne 0 -or ($iconBytes[4] -eq 0 -and $iconBytes[5] -eq 0)) { throw 'Invalid embedded ICO.' }
+    } else {
+        $script:sourceIcon = $config.iconPath
+        if (-not [IO.Path]::IsPathRooted($sourceIcon) -or [IO.Path]::GetExtension($sourceIcon) -notin @('.ico','.exe','.dll') -or $sourceIcon -match '["\r\n%]') { throw 'Invalid icon path.' }
+        if (-not (Test-Path -LiteralPath $sourceIcon -PathType Leaf)) { throw ('Icon not found: ' + $sourceIcon) }
+    }
     if ($config.iconIndex -lt -100000 -or $config.iconIndex -gt 100000) { throw 'Invalid icon index.' }
 }
 if ($ValidateOnly) { Check-Config; Write-Output 'VALIDATION_OK: no registry changes made.'; exit 0 }
@@ -75,11 +111,12 @@ if ($env:CODEX_WINDOWS_SANDBOX_PACKAGE_FAMILY -or $env:CODEX_THREAD_ID -or [Secu
     Write-Error 'Run apply.cmd from Windows File Explorer. Agent commands use an isolated registry.'
     exit 1
 }
+New-Item -ItemType Directory -Path $workRoot -Force | Out-Null
 $extPath = 'Software\Classes\' + $config.extension
 $typeId = 'IconController.' + $config.extension.Substring(1)
 $typePath = 'Software\Classes\' + $typeId
 $choicePath = 'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\' + $config.extension
-$statePath = Join-Path $PSScriptRoot 'state.json'
+$statePath = Join-Path $workRoot 'state.json'
 $backup = ''
 $state = $null
 $mutationStarted = $false
@@ -109,11 +146,12 @@ try {
     Check-Config
     $effectiveIcon = $sourceIcon
     if ($config.bundledIcon) {
-        $hash = (Get-FileHash -LiteralPath $sourceIcon -Algorithm SHA256).Hash.ToLowerInvariant()
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $hash = [BitConverter]::ToString($sha.ComputeHash($iconBytes)).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
         $iconDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'IconController\Icons'
         New-Item -ItemType Directory -Path $iconDir -Force | Out-Null
         $effectiveIcon = Join-Path $iconDir ($hash + '.ico')
-        if (-not (Test-Path -LiteralPath $effectiveIcon)) { Copy-Item -LiteralPath $sourceIcon -Destination $effectiveIcon }
+        if (-not (Test-Path -LiteralPath $effectiveIcon)) { [IO.File]::WriteAllBytes($effectiveIcon, $iconBytes) }
     }
     $iconValue = '"' + $effectiveIcon + '",' + $config.iconIndex
     $command = '"' + $config.application + '" "%1"'
@@ -127,7 +165,7 @@ try {
             Notify-Shell; Receipt 'applied' 'Already applied.' $previous.backupFolder; Write-Output 'Already applied; original backup preserved.'; exit 0
         }
     }
-    $backup = Join-Path $PSScriptRoot ('backups\' + [DateTime]::Now.ToString('yyyyMMdd-HHmmss-fff'))
+    $backup = Join-Path $workRoot ('backups\' + [DateTime]::Now.ToString('yyyyMMdd-HHmmss-fff'))
     New-Item -ItemType Directory -Path $backup -Force | Out-Null
     $paths = @($extPath, $typePath, $choicePath)
     $i = 0

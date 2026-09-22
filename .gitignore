@@ -1,6 +1,7 @@
 # Machine-local configuration, generated scripts and real rollback backups
 /data/
-# Build outputs and disposable test fixtures
+# Build outputs
+/IconController.exe
 /build/
 /bin/
 /obj/

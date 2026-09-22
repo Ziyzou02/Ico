@@ -32,6 +32,7 @@ namespace IconController {
         [DataMember] public string Fingerprint;
         [DataMember] public string CreatedAt;
         [DataMember] public string Folder;
+        [DataMember(EmitDefaultValue=false)] public string ScriptFolder;
     }
     [DataContract] public class Library {
         [DataMember] public int Version = 1;
@@ -51,6 +52,7 @@ namespace IconController {
         [DataMember(Name="iconPath")] public string IconPath;
         [DataMember(Name="iconIndex")] public int IconIndex;
         [DataMember(Name="bundledIcon")] public bool BundledIcon;
+        [DataMember(Name="iconData")] public string IconData;
         [DataMember(Name="revisionId")] public string RevisionId;
     }
     public static class Json {
@@ -169,24 +171,43 @@ namespace IconController {
             if(p.ConfirmedExisting) return "已有配置";
             return "已保存";
         }
-        public Revision Generate(Profile p) {
-            Rules.Validate(p,true);
-            var rev=new Revision{Id=Guid.NewGuid().ToString("N"),ProfileId=p.Id,Fingerprint=Rules.Fingerprint(p),CreatedAt=DateTime.UtcNow.ToString("o")};
-            string folder=Path.Combine(Root,"scripts",p.Extension.Substring(1),DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+rev.Id.Substring(0,6));
-            rev.Folder=folder; Directory.CreateDirectory(folder);
-            bool bundle=Path.GetExtension(p.IconPath).Equals(".ico",StringComparison.OrdinalIgnoreCase);
-            if(bundle) File.Copy(p.IconPath,Path.Combine(folder,"icon.ico"));
-            var payload=new Payload{Extension=p.Extension,Application=p.Application,IconPath=bundle?"icon.ico":p.IconPath,IconIndex=p.IconIndex,BundledIcon=bundle,RevisionId=rev.Id};
+        public string ScriptsRoot { get { return Path.Combine(Root,"scripts"); } }
+        public Revision Generate(Profile p) { return GenerateMany(new[]{p},false).Single(); }
+        public List<Revision> GenerateAll() { return GenerateMany(Data.Profiles.OrderBy(p=>p.Extension).ToArray(),true); }
+        private List<Revision> GenerateMany(IEnumerable<Profile> profiles,bool all) {
+            var selected=profiles.Select(p=>Json.Copy(p)).ToList();
+            if(selected.Count==0) throw new ArgumentException("仓库为空，请先保存一个后缀配置。");
+            foreach(var p in selected) Rules.Validate(p,true);
+            string packageId=DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N");
+            string folder=Path.Combine(ScriptsRoot,"history",packageId);
+            var revisions=new List<Revision>(); var payloads=new List<Payload>();
+            foreach(var p in selected) {
+                var rev=new Revision{Id=Guid.NewGuid().ToString("N"),ProfileId=p.Id,Fingerprint=Rules.Fingerprint(p),CreatedAt=DateTime.UtcNow.ToString("o"),ScriptFolder=folder};
+                rev.Folder=Path.Combine(folder,"items",rev.Id); revisions.Add(rev);
+                bool bundle=Path.GetExtension(p.IconPath).Equals(".ico",StringComparison.OrdinalIgnoreCase);
+                payloads.Add(new Payload{Extension=p.Extension,Application=p.Application,IconPath=p.IconPath,IconIndex=p.IconIndex,BundledIcon=bundle,IconData=bundle?Convert.ToBase64String(File.ReadAllBytes(p.IconPath)):null,RevisionId=rev.Id});
+            }
             string template;
             using(var stream=typeof(Store).Assembly.GetManifestResourceStream("ApplyTemplate")) using(var reader=new StreamReader(stream,Encoding.UTF8)) template=reader.ReadToEnd();
-            string script=template.Replace("@@PAYLOAD@@",Convert.ToBase64String(Json.Bytes(payload)));
+            string script=template.Replace("@@PAYLOAD@@",Convert.ToBase64String(Json.Bytes(payloads))).Replace("@@PACKAGE@@",packageId);
+            Directory.CreateDirectory(folder);
+            foreach(var rev in revisions) Directory.CreateDirectory(rev.Folder);
             File.WriteAllText(Path.Combine(folder,"apply.ps1"),script,new UTF8Encoding(true));
-            File.WriteAllText(Path.Combine(folder,"apply.cmd"),"@echo off\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0apply.ps1\"\r\nif errorlevel 1 echo Apply failed. See the error above and receipt.json.\r\npause\r\n",Encoding.ASCII);
-            File.WriteAllText(Path.Combine(folder,"restore.cmd"),"@echo off\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0apply.ps1\" -Restore\r\nif errorlevel 1 echo Restore failed. See the error above.\r\npause\r\n",Encoding.ASCII);
-            File.WriteAllText(Path.Combine(folder,"README.txt"),"Icon Controller / "+p.Extension+"\r\n\r\n双击 apply.cmd 应用。无需在管理员账户中运行。\r\n打开程序："+p.Application+"\r\n图标："+p.IconPath+"\r\n\r\n脚本先备份，再设置图标和打开方式。ICO 会复制到当前用户的本地图标目录。\r\n应用后可双击 restore.cmd 恢复先前配置；若之后更改过配置，请使用最新版本的还原脚本。\r\n执行结果保存在 receipt.json，回到控制器点击刷新即可查看。\r\n图标显示最终以资源管理器为准。\r\n",new UTF8Encoding(true));
-            Data.Revisions.Add(rev);
-            try { Save(); } catch { Data.Revisions.Remove(rev); throw; }
-            return rev;
+            WriteLauncher(Path.Combine(folder,"apply.cmd"),"apply.ps1",false);
+            WriteLauncher(Path.Combine(folder,"restore.cmd"),"apply.ps1",true);
+            File.WriteAllText(Path.Combine(folder,"README.txt"),"Icon Controller\r\n"+string.Join("\r\n",selected.Select(p=>p.Extension+" → "+p.Application))+"\r\n\r\napply.cmd 应用全部配置；restore.cmd 按反序还原本版本已应用的配置。\r\n先预检全部配置，再逐项执行；失败会停止，已成功项保留，可运行还原入口。\r\nICO 已嵌入脚本。items 中保存各项回执及备份，请保留本目录。\r\n",new UTF8Encoding(true));
+            Data.Revisions.AddRange(revisions);
+            try { Save(); } catch { foreach(var rev in revisions) Data.Revisions.Remove(rev); throw; }
+            string name=all?"apply-all":"apply";
+            string target=Path.Combine(ScriptsRoot,name+".ps1");
+            string temp=target+".tmp"; File.WriteAllText(temp,script,new UTF8Encoding(true));
+            if(File.Exists(target)) File.Replace(temp,target,null); else File.Move(temp,target);
+            WriteLauncher(Path.Combine(ScriptsRoot,name+".cmd"),name+".ps1",false);
+            WriteLauncher(Path.Combine(ScriptsRoot,all?"restore-all.cmd":"restore.cmd"),name+".ps1",true);
+            return revisions;
+        }
+        private static void WriteLauncher(string path,string script,bool restore) {
+            File.WriteAllText(path,"@echo off\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0"+script+"\""+(restore?" -Restore":"")+"\r\nset \"result=%errorlevel%\"\r\nif not \"%result%\"==\"0\" echo Operation failed. See the error above.\r\npause\r\nexit /b %result%\r\n",Encoding.ASCII);
         }
     }
 }

@@ -14,9 +14,7 @@ namespace IconController {
     public static class Program {
         [STAThread] public static int Main(string[] args) {
             Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
-            string executableFolder=AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
-            string projectFolder=Path.GetFileName(executableFolder).Equals("build",StringComparison.OrdinalIgnoreCase)?Path.GetDirectoryName(executableFolder):executableFolder;
-            string root=Path.Combine(projectFolder,"data");
+            string root=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"data");
             using(var mutex=new Mutex(false,"Local\\IconController-"+Rules.Hash(Encoding.UTF8.GetBytes(root)).Substring(0,16))) {
                 bool acquired=false;
                 try {
@@ -48,6 +46,7 @@ namespace IconController {
         public MainForm(Store store) {
             SuspendLayout();
             this.store=store; Text="Icon Controller · 文件图标控制器"; Font=new Font("Microsoft YaHei UI",9F); ForeColor=ink;
+            Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             BackColor=Color.FromArgb(245,247,251); MinimumSize=new Size(1040,730);
             Size=new Size(1140,800); StartPosition=FormStartPosition.CenterScreen;
             var outer=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,Padding=new Padding(18),RowCount=1};
@@ -68,9 +67,10 @@ namespace IconController {
         }
         TextBox TextField() { return new TextBox{Dock=DockStyle.Fill,BorderStyle=BorderStyle.FixedSingle,Margin=new Padding(0,3,0,0)}; }
         Control BuildSidebar() {
-            var panel=new TableLayoutPanel{Dock=DockStyle.Fill,BackColor=Color.White,Padding=new Padding(16),ColumnCount=1,RowCount=7,Margin=new Padding(0,0,16,0)};
+            var panel=new TableLayoutPanel{Dock=DockStyle.Fill,BackColor=Color.White,Padding=new Padding(16),ColumnCount=1,RowCount=8,Margin=new Padding(0,0,16,0)};
             foreach(var h in new[]{34,30,39}) panel.RowStyles.Add(new RowStyle(SizeType.Absolute,h));
             panel.RowStyles.Add(new RowStyle(SizeType.Percent,100)); panel.RowStyles.Add(new RowStyle(SizeType.Absolute,44)); panel.RowStyles.Add(new RowStyle(SizeType.Absolute,44)); panel.RowStyles.Add(new RowStyle(SizeType.Absolute,40));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute,44));
             panel.Controls.Add(Label("◈  ICON CONTROLLER",12,ink,true),0,0);
             count=Label("配置仓库",9,muted); panel.Controls.Add(count,0,1);
             search=TextField(); search.AccessibleName="搜索后缀或应用"; search.HandleCreated+=(s,e)=>SendMessage(search.Handle,0x1501,IntPtr.Zero,"搜索后缀或应用…"); search.TextChanged+=(s,e)=>RefreshLibrary(editing==null?null:editing.Id); panel.Controls.Add(search,0,2);
@@ -88,7 +88,8 @@ namespace IconController {
             panel.Controls.Add(library,0,3);
             var row=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false}; row.Controls.Add(Button("＋ 新建后缀",(s,e)=>{if(DiscardChanges()) NewProfile();},true)); row.Controls.Add(Button("移出仓库",DeleteProfile)); panel.Controls.Add(row,0,4);
             var transfer=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false}; transfer.Controls.Add(Button("导入配置",Import)); transfer.Controls.Add(Button("导出配置",Export)); panel.Controls.Add(transfer,0,5);
-            var repo=Button("打开仓库目录",(s,e)=>OpenFolder(store.Root)); repo.Width=236; panel.Controls.Add(repo,0,6);
+            var repo=Button("打开统一脚本目录",(s,e)=>{Directory.CreateDirectory(store.ScriptsRoot);OpenFolder(store.ScriptsRoot);}); repo.Width=236; panel.Controls.Add(repo,0,6);
+            var all=Button("一键生成全部配置",GenerateAll,true);all.Width=236;panel.Controls.Add(all,0,7);
             return panel;
         }
         Control BuildMain() {
@@ -158,7 +159,14 @@ namespace IconController {
         Profile Persist() { var p=store.Upsert(ReadEditor());LoadProfile(p);return p; }
         void Save(object s,EventArgs e) { try {var p=Persist();SetFeedback("已保存 "+p.Extension+"；文件关联尚未更改。",false);}catch(Exception ex){Error(ex);} }
         void Generate(object s,EventArgs e) {
-            try {var p=Persist();var r=store.Generate(p);RefreshLibrary(p.Id);RefreshHistory();SetFeedback("脚本已生成。双击 apply.cmd 应用，restore.cmd 可还原。",false);OpenFolder(r.Folder);}catch(Exception ex){Error(ex);}
+            try {var p=Persist();var r=store.Generate(p);RefreshLibrary(p.Id);RefreshHistory();SetFeedback("脚本已生成。双击 apply.cmd 应用，restore.cmd 可还原。",false);OpenFolder(store.ScriptsRoot);}catch(Exception ex){Error(ex);}
+        }
+        void GenerateAll(object s,EventArgs e) {
+            try {
+                if(dirty) Persist();
+                var revisions=store.GenerateAll();RefreshLibrary(editing==null?null:editing.Id);RefreshHistory();
+                SetFeedback("已生成 "+revisions.Count+" 个后缀的统一脚本。双击 apply-all.cmd 执行。",false);OpenFolder(store.ScriptsRoot);
+            } catch(Exception ex) { Error(ex); }
         }
         void RefreshLibrary(string selectedId) {
             bool wasLoading=loading;loading=true;library.BeginUpdate();library.Items.Clear();
@@ -185,7 +193,7 @@ namespace IconController {
         Revision SelectedRevision() {return history.SelectedItems.Count>0?(Revision)history.SelectedItems[0].Tag:null;}
         void OpenSelectedRevision(bool script) {
             var r=SelectedRevision();if(r==null){SetFeedback("请先生成或选择一个脚本版本。",false);return;}
-            try {if(script)Process.Start(new ProcessStartInfo("notepad.exe","\""+Path.Combine(r.Folder,"apply.ps1")+"\""){UseShellExecute=true});else OpenFolder(r.Folder);}catch(Exception e){Error(e);}
+            try {if(script)Process.Start(new ProcessStartInfo("notepad.exe","\""+Path.Combine(r.ScriptFolder??r.Folder,"apply.ps1")+"\""){UseShellExecute=true});else OpenFolder(r.ScriptFolder??r.Folder);}catch(Exception e){Error(e);}
         }
         void ShowResult() {var r=SelectedRevision();if(r==null)return;var result=store.ReadReceipt(r);MessageBox.Show(this,result==null?"此版本还没有执行结果。请在文件资源管理器中双击 apply.cmd。":result.Status+"\n\n"+result.Message+"\n\n备份："+result.BackupFolder,"脚本执行结果",MessageBoxButtons.OK,MessageBoxIcon.Information);}
         void OpenFolder(string folder) {try{if(!Directory.Exists(folder))throw new DirectoryNotFoundException("目录已移动或不存在："+folder);Process.Start(new ProcessStartInfo(folder){UseShellExecute=true});}catch(Exception e){Error(e);}}
