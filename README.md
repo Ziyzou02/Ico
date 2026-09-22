@@ -34,8 +34,6 @@ data/                    个人配置、脚本及备份（Git 忽略）
 
 应用始终使用 EXE 同级的 `data/`，与启动时的工作目录无关。移动应用时请一并保留 `data/`；已有配置中的外部绝对路径仍须有效。移出仓库只移除管理记录，保留已生成文件和系统设置。执行状态来自匹配该版本的回执，生成脚本不等于已经应用。
 
-根目录的 `julia/`、`typst/` 是本机旧图标路径的兼容链接，实际素材位于 `assets/`。需要移除链接时，从桌面运行 `data/scripts/remove-legacy-links.cmd`；工具先备份并迁移旧图标引用，验证后仅删除链接，不删除素材。
-
 ## 构建
 
 需要 Windows、.NET Framework 4.8 和 Windows PowerShell 5.1，无需 Node.js、Python 或 NuGet。源码修改后运行：
