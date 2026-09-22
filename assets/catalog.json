@@ -1,0 +1,4 @@
+[
+  { "Name": "Julia", "Extension": ".jl", "Resource": "Builtin.Julia" },
+  { "Name": "Typst", "Extension": ".typ", "Resource": "Builtin.Typst" }
+]

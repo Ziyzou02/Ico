@@ -1,0 +1,13 @@
+# Machine-local configuration, generated scripts and real rollback backups
+/data/
+# Build outputs and disposable test fixtures
+/build/
+/bin/
+/obj/
+.vs/
+*.user
+*.suo
+*.tmp
+# Local-only compatibility junctions for previously installed icon paths
+/julia/
+/typst/
