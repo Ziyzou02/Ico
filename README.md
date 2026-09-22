@@ -52,13 +52,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 
 脚本应从 Windows 桌面执行。此前已确认代理命令与资源管理器可能使用不同的注册表视图，因此脚本拒绝在已知代理隔离环境中修改关联。`-ValidateOnly` 仅检查配置，不写注册表、执行回执或备份；最终图标显示以资源管理器为准。
 
-## 素材
-
-Julia、Typst 素材沿用项目已有文件，来源见 [assets/README.md](assets/README.md)。代码与第三方标识的授权分别处理，本项目暂未指定公开发布许可证。
 
 ## GitHub 同类项目
 
-检索与 README 核对日期：2026-09-22。以下是项目公开声明的功能；未下载或运行它们，Windows 11 当前版本兼容性未经本机验证。
+核对日期：2026-09-22。
 
 | 项目 | 相似能力 | 与 Icon Controller 的差异 |
 | --- | --- | --- |
@@ -66,4 +63,3 @@ Julia、Typst 素材沿用项目已有文件，来源见 [assets/README.md](asse
 | [BLumia/pineapple-assoc-manager](https://github.com/BLumia/pineapple-assoc-manager) | 便携应用关联管理、图形界面、自定义命令和图标、默认应用注册 | 使用 INI 风格的 .pacfg 配置，C++ / Qt 6，侧重随便携软件分发关联管理器；当前工具侧重个人管理多个后缀及生成可独立执行的脚本。 |
 | [zoxknez/windows-File-Association-Icon-Manager](https://github.com/zoxknez/windows-File-Association-Icon-Manager/blob/main/README.en.md) | PowerShell 设置图标、查询当前 ProgID、保存旧值并恢复 | 侧重修改当前关联的图标而不更改默认应用。README 列出的探测链为 UserChoice → HKCR；未据此确认其支持 UserChoiceLatest。当前工具同时选择应用与图标，并保留脚本历史。 |
 
-这些项目说明需求已有成熟方向可参考。本次仅作功能调研，未复制源码，也未将兼容性声明当作本机验证结果。
